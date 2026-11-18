@@ -14,6 +14,7 @@ Express 5 + MongoDB backend for **EverAfter**, a wedding services marketplace wh
 ```bash
 npm install
 cp .env.example .env   # fill in MongoDB and integration keys (optional for a bare boot)
+npm run seed           # optional: insert demo vendors and services
 npm run dev
 ```
 
@@ -27,10 +28,37 @@ In development the server still starts when `MONGODB_URI` is missing or MongoDB 
 |---|---|
 | `npm run dev` | Start with nodemon |
 | `npm start` | Start in production mode |
+| `npm run seed` | Insert demo vendors and services (idempotent, replaces seed services) |
 
 ## Environment Variables
 
 See `.env.example`. Required: `MONGODB_URI`, `MONGODB_DB`, `CLIENT_URL`. Better Auth, Stripe, and ImgBB keys are configured separately.
+
+## API Endpoints
+
+All responses use the shape `{ success, data, meta? }`; errors use `{ success: false, message, errors? }`.
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/health` | Liveness + MongoDB connection status |
+| `GET` | `/api/services` | Public catalogue: approved + available services only |
+| `GET` | `/api/services/:id` | Public service details; `404` for invalid, unpublished, or unavailable ids |
+
+### `GET /api/services` query parameters
+
+| Parameter | Values | Notes |
+|---|---|---|
+| `search` | string | Case-insensitive match on service name or description |
+| `category` | `photography`, `venues`, `decoration`, `catering`, `makeup`, `fashion` | Invalid values return `422` |
+| `location` | string | Case-insensitive partial match |
+| `minPrice`, `maxPrice` | number ≥ 0 | Inclusive price range |
+| `sort` | `newest` (default), `price_asc`, `price_desc` | |
+| `page` | integer ≥ 1 | Defaults to `1` |
+| `limit` | integer 1–48 | Defaults to `9` |
+
+Pagination metadata: `{ page, limit, total, totalPages }`.
+
+Service objects include a `vendor` object (`id`, `name`, `businessName`, `image`, `subscriptionPlan`) resolved from the `users` collection.
 
 ## Repository Links
 

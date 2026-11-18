@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { pingDB } from "../config/db.js";
 import { env } from "../config/env.js";
+import serviceRoutes from "../modules/services/service.routes.js";
 
 const router = Router();
 
@@ -28,5 +29,7 @@ router.get("/health", async (req, res) => {
     },
   });
 });
+
+router.use("/services", serviceRoutes);
 
 export default router;
