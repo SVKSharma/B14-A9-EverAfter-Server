@@ -6,6 +6,7 @@ import vendorServiceRoutes from "../modules/services/vendor-service.routes.js";
 import uploadRoutes from "../modules/uploads/upload.routes.js";
 import bookingRoutes from "../modules/bookings/booking.routes.js";
 import statsRoutes from "../modules/stats/stats.routes.js";
+import adminRoutes from "../modules/admin/admin.routes.js";
 
 const router = Router();
 
@@ -39,5 +40,6 @@ router.use("/vendor/services", vendorServiceRoutes);
 router.use("/uploads", uploadRoutes);
 router.use("/bookings", bookingRoutes);
 router.use("/stats", statsRoutes);
+router.use("/admin", adminRoutes);
 
 export default router;
