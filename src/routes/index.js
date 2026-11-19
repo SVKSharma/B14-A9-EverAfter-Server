@@ -4,6 +4,8 @@ import { env } from "../config/env.js";
 import serviceRoutes from "../modules/services/service.routes.js";
 import vendorServiceRoutes from "../modules/services/vendor-service.routes.js";
 import uploadRoutes from "../modules/uploads/upload.routes.js";
+import bookingRoutes from "../modules/bookings/booking.routes.js";
+import statsRoutes from "../modules/stats/stats.routes.js";
 
 const router = Router();
 
@@ -35,5 +37,7 @@ router.get("/health", async (req, res) => {
 router.use("/services", serviceRoutes);
 router.use("/vendor/services", vendorServiceRoutes);
 router.use("/uploads", uploadRoutes);
+router.use("/bookings", bookingRoutes);
+router.use("/stats", statsRoutes);
 
 export default router;

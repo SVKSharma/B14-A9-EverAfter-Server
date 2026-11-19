@@ -23,6 +23,14 @@ async function ensureIndexes(database) {
         { key: { vendorId: 1, status: 1, createdAt: -1 } },
         { key: { serviceId: 1 } },
         { key: { status: 1 } },
+        // Guards the "one active request per customer/service/date" rule at the
+        // database level too. Partial, so cancelled/rejected rows do not block
+        // a fresh request.
+        {
+          key: { customerId: 1, serviceId: 1, eventDate: 1 },
+          unique: true,
+          partialFilterExpression: { status: { $in: ["pending", "accepted"] } },
+        },
       ]);
 
     await database
