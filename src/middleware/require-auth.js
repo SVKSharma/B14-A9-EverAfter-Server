@@ -53,6 +53,12 @@ async function resolveUser(req) {
     throw ApiError.forbidden("This account has been blocked. Contact support for help.");
   }
 
+  // A premium plan without a future expiry is not premium. Enforcing it here
+  // means quota checks, badges and dashboards all see the same truth.
+  const plan = user.subscriptionPlan === "premium" ? "premium" : "free";
+  const expiresAt = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
+  const premiumActive = plan === "premium" && expiresAt !== null && expiresAt.getTime() > Date.now();
+
   return {
     id: String(user.id),
     email: user.email,
@@ -60,8 +66,8 @@ async function resolveUser(req) {
     role: user.role === "admin" || user.role === "vendor" ? user.role : "customer",
     image: user.image ?? null,
     businessName: user.businessName ?? null,
-    subscriptionPlan: user.subscriptionPlan === "premium" ? "premium" : "free",
-    subscriptionExpiresAt: user.subscriptionExpiresAt ?? null,
+    subscriptionPlan: premiumActive ? "premium" : "free",
+    subscriptionExpiresAt: premiumActive ? expiresAt.toISOString() : null,
   };
 }
 

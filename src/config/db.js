@@ -39,7 +39,15 @@ async function ensureIndexes(database) {
         { key: { vendorId: 1, createdAt: -1 } },
         { key: { status: 1 } },
         { key: { stripeSessionId: 1 }, unique: true, sparse: true },
-        { key: { stripeSubscriptionId: 1 }, unique: true, sparse: true },
+        // One-time passes have no subscription id, so the field is null on most
+        // rows. A sparse unique index would still collide on repeated nulls;
+        // indexing only real string ids keeps renewals unique without blocking
+        // the second purchase.
+        {
+          key: { stripeSubscriptionId: 1 },
+          unique: true,
+          partialFilterExpression: { stripeSubscriptionId: { $type: "string" } },
+        },
       ]);
 
     await database.collection("users").createIndex({ role: 1 });

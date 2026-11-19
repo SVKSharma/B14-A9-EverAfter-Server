@@ -57,9 +57,12 @@ function buildFilter(query) {
 }
 
 function buildSort(sort) {
-  if (sort === "price_asc") return { price: 1, createdAt: -1 };
-  if (sort === "price_desc") return { price: -1, createdAt: -1 };
-  return { createdAt: -1, _id: -1 };
+  // Premium vendors are featured first on every ordering; the requested sort
+  // breaks ties inside each group.
+  const rank = { _premiumRank: -1 };
+  if (sort === "price_asc") return { ...rank, price: 1, createdAt: -1, _id: -1 };
+  if (sort === "price_desc") return { ...rank, price: -1, createdAt: -1, _id: -1 };
+  return { ...rank, createdAt: -1, _id: -1 };
 }
 
 const VENDOR_LOOKUP_STAGES = [
@@ -74,6 +77,24 @@ const VENDOR_LOOKUP_STAGES = [
   { $unwind: { path: "$vendorDoc", preserveNullAndEmptyArrays: true } },
   {
     $addFields: {
+      // A premium plan whose expiry already passed is not premium, so the
+      // ranking reads the expiry rather than trusting the stored plan.
+      _premiumRank: {
+        $cond: [
+          {
+            $and: [
+              { $eq: ["$vendorDoc.subscriptionPlan", "premium"] },
+              { $gt: ["$vendorDoc.subscriptionExpiresAt", "$$NOW"] },
+            ],
+          },
+          1,
+          0,
+        ],
+      },
+    },
+  },
+  {
+    $addFields: {
       vendor: {
         $cond: [
           { $ifNull: ["$vendorDoc", false] },
@@ -82,14 +103,15 @@ const VENDOR_LOOKUP_STAGES = [
             name: "$vendorDoc.name",
             businessName: "$vendorDoc.businessName",
             image: "$vendorDoc.image",
-            subscriptionPlan: "$vendorDoc.subscriptionPlan",
+            subscriptionPlan: {
+              $cond: [{ $eq: ["$_premiumRank", 1] }, "premium", "free"],
+            },
           },
           null,
         ],
       },
     },
   },
-  { $project: { vendorDoc: 0 } },
 ];
 
 export async function listServices(query) {
@@ -102,10 +124,12 @@ export async function listServices(query) {
     services
       .aggregate([
         { $match: filter },
+        // Ranking needs the joined vendor, so pagination happens after lookup.
+        ...VENDOR_LOOKUP_STAGES,
         { $sort: buildSort(sort) },
         { $skip: skip },
         { $limit: limit },
-        ...VENDOR_LOOKUP_STAGES,
+        { $project: { vendorDoc: 0, _premiumRank: 0 } },
       ])
       .toArray(),
     services.countDocuments(filter),
@@ -136,6 +160,7 @@ export async function getPublicServiceById(id) {
         },
       },
       ...VENDOR_LOOKUP_STAGES,
+      { $project: { vendorDoc: 0, _premiumRank: 0 } },
     ])
     .toArray();
 

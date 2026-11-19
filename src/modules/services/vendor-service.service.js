@@ -44,6 +44,9 @@ function normalizeImages(value, field = "images") {
  * Free vendors get 3 live listings. Pending and approved both occupy a slot so
  * a vendor cannot dodge the limit by keeping everything in review; rejected
  * listings free their slot again.
+ *
+ * `req.user.subscriptionPlan` is already expiry-checked by `requireAuth`, so an
+ * expired premium pass falls back to the free limit automatically.
  */
 export async function assertQuota(vendor, { ignoreServiceId } = {}) {
   if (vendor.subscriptionPlan === "premium") return;
