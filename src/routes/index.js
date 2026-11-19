@@ -8,6 +8,7 @@ import bookingRoutes from "../modules/bookings/booking.routes.js";
 import statsRoutes from "../modules/stats/stats.routes.js";
 import adminRoutes from "../modules/admin/admin.routes.js";
 import subscriptionRoutes from "../modules/subscriptions/subscription.routes.js";
+import userRoutes from "../modules/users/user.routes.js";
 
 const router = Router();
 
@@ -43,5 +44,6 @@ router.use("/bookings", bookingRoutes);
 router.use("/stats", statsRoutes);
 router.use("/admin", adminRoutes);
 router.use("/subscriptions", subscriptionRoutes);
+router.use("/users", userRoutes);
 
 export default router;
