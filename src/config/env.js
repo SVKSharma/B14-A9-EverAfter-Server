@@ -45,7 +45,9 @@ export const env = {
   allowedOrigins: toList(clientUrl),
 
   // Better Auth / JWT bridge (configured in the client app)
-  betterAuthUrl: optional("BETTER_AUTH_URL"),
+  // In development the first allowed client origin is assumed to be the auth
+  // server. Production must set BETTER_AUTH_URL explicitly.
+  betterAuthUrl: optional("BETTER_AUTH_URL", isProduction ? "" : toList(clientUrl)[0] || ""),
   jwtIssuer: optional("BETTER_AUTH_JWT_ISSUER"),
   jwtAudience: optional("BETTER_AUTH_JWT_AUDIENCE"),
 

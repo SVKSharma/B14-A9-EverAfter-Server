@@ -24,6 +24,11 @@ app.use(
 
 // Business routes are mounted before the body parser only when they need a raw
 // payload (Stripe webhooks). They will be registered in their own module.
+
+// Image uploads travel as base64 JSON, which inflates a 5 MB file to ~7 MB.
+// Give that one path a larger cap while every other route keeps the 2 MB limit.
+app.use("/api/uploads", express.json({ limit: "8mb" }));
+
 app.use(express.json({ limit: "2mb" }));
 
 app.get("/", (req, res) => {
