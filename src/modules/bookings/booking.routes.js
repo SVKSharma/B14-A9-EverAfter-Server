@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { requireAuth } from "../../middleware/require-auth.js";
+import { requireAuth, requireRole } from "../../middleware/require-auth.js";
 import {
   cancel,
   create,
@@ -13,13 +13,12 @@ const router = Router();
 
 router.use(requireAuth);
 
-// Static segments are declared before "/:id" so they are never captured as ids.
-router.get("/mine", mine);
-router.get("/vendor", vendor);
+router.get("/mine", requireRole("customer"), mine);
+router.get("/vendor", requireRole("vendor"), vendor);
 
-router.post("/", create);
+router.post("/", requireRole("customer"), create);
 router.get("/:id", show);
-router.patch("/:id/cancel", cancel);
-router.patch("/:id/status", updateStatus);
+router.patch("/:id/cancel", requireRole("customer", "admin"), cancel);
+router.patch("/:id/status", requireRole("vendor", "admin"), updateStatus);
 
 export default router;

@@ -1,77 +1,75 @@
+import { createRemoteJWKSet, jwtVerify } from "jose";
+import { ObjectId } from "mongodb";
 import { env } from "../config/env.js";
+import { getCollection } from "../config/db.js";
 import { ApiError } from "../utils/api-error.js";
 
-/**
- * Resolves the signed-in user for a request.
- *
- * Phase 7 keeps authentication in Next.js (Better Auth), so this middleware
- * asks the auth server to validate the forwarded session cookie. That keeps a
- * single source of truth for sessions and roles while the SQL-free business
- * endpoints stay closed to anonymous callers.
- *
- * Phase 10 replaces the body of `resolveUser` with local JWT/JWKS verification
- * and nothing else in the codebase has to change: every handler keeps reading
- * `req.user`.
- */
+const authOrigin = (env.betterAuthUrl || "").replace(/\/$/, "");
+
+let jwks = null;
+
+function getJwks() {
+  if (!jwks) {
+    jwks = createRemoteJWKSet(new URL(`${authOrigin}/api/auth/jwks`));
+  }
+  return jwks;
+}
+
+function readToken(req) {
+  const [scheme, token] = (req.headers.authorization || "").split(" ");
+  if (!scheme || !token || scheme.toLowerCase() !== "bearer") return null;
+  return token;
+}
+
+async function findUser(id) {
+  const user = await getCollection("users").findOne({ id });
+  if (user) return user;
+  if (!ObjectId.isValid(id)) return null;
+  return getCollection("users").findOne({ _id: new ObjectId(id) });
+}
+
 async function resolveUser(req) {
-  if (!env.betterAuthUrl) {
-    throw new ApiError(
-      503,
-      "Authentication is not configured on the server (BETTER_AUTH_URL is missing)"
-    );
+  if (!authOrigin) {
+    throw new ApiError(503, "Authentication is not configured on the server");
   }
 
-  const cookie = req.headers.cookie;
-  if (!cookie) {
-    throw ApiError.unauthorized();
-  }
+  const token = readToken(req);
+  if (!token) throw ApiError.unauthorized();
 
-  let response;
+  let payload;
   try {
-    response = await fetch(`${env.betterAuthUrl.replace(/\/$/, "")}/api/auth/get-session`, {
-      method: "GET",
-      headers: { cookie, accept: "application/json" },
-      signal: AbortSignal.timeout(8000),
-    });
-  } catch (error) {
-    console.error("[auth] session lookup failed:", error.message);
-    throw new ApiError(502, "Authentication service is unavailable. Please try again.");
+    ({ payload } = await jwtVerify(token, getJwks(), {
+      issuer: env.jwtIssuer || authOrigin,
+      audience: env.jwtAudience || authOrigin,
+    }));
+  } catch {
+    throw ApiError.unauthorized("Your session is invalid or has expired. Please sign in again.");
   }
 
-  if (!response.ok) {
-    throw ApiError.unauthorized();
-  }
+  if (!payload.sub) throw ApiError.unauthorized();
 
-  const payload = await response.json().catch(() => null);
-  const user = payload?.user;
-
-  if (!user?.id) {
-    throw ApiError.unauthorized();
-  }
-
+  const user = await findUser(String(payload.sub));
+  if (!user) throw ApiError.unauthorized("Your account no longer exists");
   if (user.isBlocked) {
     throw ApiError.forbidden("This account has been blocked. Contact support for help.");
   }
 
-  // A premium plan without a future expiry is not premium. Enforcing it here
-  // means quota checks, badges and dashboards all see the same truth.
-  const plan = user.subscriptionPlan === "premium" ? "premium" : "free";
   const expiresAt = user.subscriptionExpiresAt ? new Date(user.subscriptionExpiresAt) : null;
-  const premiumActive = plan === "premium" && expiresAt !== null && expiresAt.getTime() > Date.now();
+  const premium =
+    user.subscriptionPlan === "premium" && expiresAt !== null && expiresAt.getTime() > Date.now();
 
   return {
-    id: String(user.id),
+    id: String(user.id || user._id),
     email: user.email,
     name: user.name,
     role: user.role === "admin" || user.role === "vendor" ? user.role : "customer",
     image: user.image ?? null,
     businessName: user.businessName ?? null,
-    subscriptionPlan: premiumActive ? "premium" : "free",
-    subscriptionExpiresAt: premiumActive ? expiresAt.toISOString() : null,
+    subscriptionPlan: premium ? "premium" : "free",
+    subscriptionExpiresAt: premium ? expiresAt.toISOString() : null,
   };
 }
 
-/** Attaches `req.user` or rejects the request. */
 export async function requireAuth(req, res, next) {
   try {
     req.user = await resolveUser(req);
@@ -81,7 +79,6 @@ export async function requireAuth(req, res, next) {
   }
 }
 
-/** Must run after `requireAuth`. */
 export function requireRole(...roles) {
   return function roleGuard(req, res, next) {
     if (!req.user) {
