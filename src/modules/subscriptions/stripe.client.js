@@ -83,6 +83,15 @@ export function retrieveCheckoutSession(id) {
 }
 
 /**
+ * Closes an abandoned Checkout session. Used when a pending transaction is
+ * being released, so the old payment link cannot still be paid afterwards and
+ * produce a second charge for the same pass.
+ */
+export function expireCheckoutSession(id) {
+  return stripeRequest(`/checkout/sessions/${encodeURIComponent(id)}/expire`, { method: "POST" });
+}
+
+/**
  * Verifies a Stripe webhook signature against the exact raw request body.
  * Uses a timing-safe comparison and rejects stale timestamps so a replayed
  * delivery cannot be accepted later.

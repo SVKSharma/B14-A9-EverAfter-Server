@@ -1,7 +1,7 @@
 import { getCollection } from "../../config/db.js";
 import { env } from "../../config/env.js";
 import { ApiError } from "../../utils/api-error.js";
-import { createCheckoutSession, retrieveCheckoutSession } from "./stripe.client.js";
+import { createCheckoutSession, expireCheckoutSession, retrieveCheckoutSession } from "./stripe.client.js";
 
 /** A premium pass is a single payment that unlocks a fixed window. */
 export function premiumAmount() {
@@ -10,6 +10,97 @@ export function premiumAmount() {
     currency: env.premiumCurrency,
     days: env.premiumDurationDays,
   };
+}
+
+/**
+ * How long an unfinished checkout blocks a second one. Stripe confirms a paid
+ * session within seconds, so anything older is almost always an abandoned
+ * attempt: it is closed and released so the vendor can try again.
+ */
+const PENDING_CHECKOUT_TTL_MS = 15 * 60 * 1000;
+
+/**
+ * Resolves one pending row against Stripe before releasing it.
+ *
+ * The order matters: a row is only released after Stripe confirms no money
+ * moved and the session has been closed, so the vendor can never pay an
+ * "expired" link and be charged twice. If Stripe cannot be reached, the row is
+ * left alone rather than guessed at.
+ *
+ * Returns "released" (row is now `expired`), "paid" (money moved, webhook
+ * missed — nothing is touched) or "keep" (undecidable, try next time).
+ */
+async function resolvePendingCheckout(transaction) {
+  const transactions = getCollection("transactions");
+
+  const release = async () => {
+    await transactions.updateOne(
+      { _id: transaction._id },
+      { $set: { status: "expired", updatedAt: new Date() } }
+    );
+    return "released";
+  };
+
+  // The row never reached Stripe, so no link exists that could be paid.
+  if (!transaction.stripeSessionId || transaction.stripeSessionId.startsWith("pending-")) {
+    return release();
+  }
+
+  let session;
+  try {
+    session = await retrieveCheckoutSession(transaction.stripeSessionId);
+  } catch {
+    return "keep";
+  }
+
+  if (session.payment_status === "paid") {
+    // Stripe took the money but the webhook never arrived. Releasing this row
+    // would tell the vendor it is safe to pay again, so leave it pending and
+    // make the missed delivery loud in the logs. Only a verified webhook is
+    // allowed to grant the plan.
+    console.error(
+      "[stripe] paid session with no webhook delivery:",
+      session.id,
+      "| vendor:",
+      transaction.vendorId
+    );
+    return "paid";
+  }
+
+  // Close the session first: after this the old checkout URL cannot be paid.
+  if (session.status === "open") {
+    try {
+      await expireCheckoutSession(session.id);
+    } catch {
+      return "keep";
+    }
+  }
+
+  return release();
+}
+
+/** Marks abandoned checkouts as expired so they stop blocking new ones. */
+async function expireStaleCheckouts(vendorId) {
+  const transactions = getCollection("transactions");
+  const cutoff = new Date(Date.now() - PENDING_CHECKOUT_TTL_MS);
+
+  const stale = await transactions
+    .find({ vendorId, status: "pending", createdAt: { $lt: cutoff } })
+    .toArray();
+
+  for (const transaction of stale) {
+    await resolvePendingCheckout(transaction);
+  }
+}
+
+/** The newest pending checkout, if it is still inside the lock window. */
+async function findBlockingCheckout(vendorId) {
+  const transactions = getCollection("transactions");
+
+  // Resolve first, so an abandoned attempt is not mistaken for a live one.
+  await expireStaleCheckouts(vendorId);
+
+  return transactions.findOne({ vendorId, status: "pending" });
 }
 
 /** Premium is only real while the expiry is in the future. */
@@ -30,6 +121,15 @@ export async function createVendorCheckout(user) {
 
   if (isPremiumActive(user)) {
     throw ApiError.conflict("Your Premium plan is already active");
+  }
+
+  // Refuses a second live checkout: two open sessions for one vendor is how a
+  // double charge happens. Abandoned rows are resolved against Stripe inside.
+  const blocking = await findBlockingCheckout(user.id);
+  if (blocking) {
+    throw ApiError.conflict(
+      "A payment is already in progress. Please wait for Stripe to confirm it before trying again."
+    );
   }
 
   const { amount, currency, days } = premiumAmount();
@@ -108,6 +208,10 @@ export async function getSubscriptionStatus(user) {
   const users = getCollection("users");
   const transactions = getCollection("transactions");
 
+  // Stale checkouts are marked expired here too, so the page never shows a
+  // "pending" row for a session that will never be confirmed.
+  await expireStaleCheckouts(user.id);
+
   // Re-read the plan from Mongo so an expiry that passed while a session was
   // open is reflected immediately.
   const record = await users.findOne({ id: user.id });
@@ -126,6 +230,19 @@ export async function getSubscriptionStatus(user) {
     { sort: { createdAt: -1 } }
   );
 
+  // A pending row can mean two very different things: the checkout is still
+  // open, or the vendor paid and the webhook never arrived. Asking Stripe keeps
+  // the page honest — in the second case it must not invite another payment.
+  let awaitingActivation = false;
+  if (latest?.status === "pending" && latest.stripeSessionId && !latest.stripeSessionId.startsWith("pending-")) {
+    try {
+      const session = await retrieveCheckoutSession(latest.stripeSessionId);
+      awaitingActivation = session.payment_status === "paid";
+    } catch {
+      // Stripe unreachable: leave the flag off and keep the normal pending copy.
+    }
+  }
+
   const { amount, currency, days } = premiumAmount();
 
   return {
@@ -139,6 +256,7 @@ export async function getSubscriptionStatus(user) {
           amount: latest.amount,
           currency: latest.currency,
           createdAt: latest.createdAt,
+          awaitingActivation,
         }
       : null,
   };
