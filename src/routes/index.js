@@ -1,6 +1,14 @@
 import { Router } from "express";
 import { pingDB } from "../config/db.js";
 import { env } from "../config/env.js";
+import serviceRoutes from "../modules/services/service.routes.js";
+import vendorServiceRoutes from "../modules/services/vendor-service.routes.js";
+import uploadRoutes from "../modules/uploads/upload.routes.js";
+import bookingRoutes from "../modules/bookings/booking.routes.js";
+import statsRoutes from "../modules/stats/stats.routes.js";
+import adminRoutes from "../modules/admin/admin.routes.js";
+import subscriptionRoutes from "../modules/subscriptions/subscription.routes.js";
+import userRoutes from "../modules/users/user.routes.js";
 
 const router = Router();
 
@@ -28,5 +36,14 @@ router.get("/health", async (req, res) => {
     },
   });
 });
+
+router.use("/services", serviceRoutes);
+router.use("/vendor/services", vendorServiceRoutes);
+router.use("/uploads", uploadRoutes);
+router.use("/bookings", bookingRoutes);
+router.use("/stats", statsRoutes);
+router.use("/admin", adminRoutes);
+router.use("/subscriptions", subscriptionRoutes);
+router.use("/users", userRoutes);
 
 export default router;
