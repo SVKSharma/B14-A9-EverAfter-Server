@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { env } from "./config/env.js";
+import { connectDB } from "./config/db.js";
 import apiRouter from "./routes/index.js";
 import webhookRoutes from "./modules/subscriptions/webhook.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error-handler.js";
@@ -35,6 +36,17 @@ app.use("/api/webhooks", webhookRoutes);
 app.use("/api/uploads", express.json({ limit: "8mb" }));
 
 app.use(express.json({ limit: "2mb" }));
+
+app.use("/api", async (req, res, next) => {
+  if (req.path === "/health") return next();
+
+  try {
+    await connectDB();
+    next();
+  } catch (error) {
+    next(error);
+  }
+});
 
 app.get("/", (req, res) => {
   res.json({ success: true, data: { name: "EverAfter API", health: "/api/health" } });

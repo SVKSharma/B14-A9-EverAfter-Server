@@ -3,6 +3,7 @@ import { env } from "./env.js";
 
 let client = null;
 let db = null;
+let connectionPromise = null;
 
 async function ensureIndexes(database) {
   try {
@@ -59,26 +60,33 @@ async function ensureIndexes(database) {
 
 export async function connectDB() {
   if (db) return db;
+  if (connectionPromise) return connectionPromise;
 
   const newClient = new MongoClient(env.mongoUri, {
     serverSelectionTimeoutMS: 10000,
     retryWrites: true,
   });
 
-  try {
-    await newClient.connect();
-    const database = newClient.db(env.mongoDb);
-    await database.command({ ping: 1 });
-    await ensureIndexes(database);
+  connectionPromise = (async () => {
+    try {
+      await newClient.connect();
+      const database = newClient.db(env.mongoDb);
+      await database.command({ ping: 1 });
+      await ensureIndexes(database);
 
-    client = newClient;
-    db = database;
-    console.log(`[db] Connected to MongoDB database "${env.mongoDb}"`);
-    return db;
-  } catch (error) {
-    await newClient.close().catch(() => {});
-    throw error;
-  }
+      client = newClient;
+      db = database;
+      console.log(`[db] Connected to MongoDB database "${env.mongoDb}"`);
+      return db;
+    } catch (error) {
+      await newClient.close().catch(() => {});
+      throw error;
+    } finally {
+      connectionPromise = null;
+    }
+  })();
+
+  return connectionPromise;
 }
 
 export function getDb() {

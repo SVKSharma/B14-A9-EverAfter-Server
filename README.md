@@ -20,7 +20,7 @@ npm run dev
 
 The API runs on `http://localhost:5000`. Health check: `GET /api/health`.
 
-In development the server still starts when `MONGODB_URI` is missing or MongoDB is down: it logs a warning, retries every 15 seconds, and `GET /api/health` returns `503` with `database: "disconnected"` until the connection succeeds. In production it exits on startup if the database is unreachable.
+The standalone development server still starts when `MONGODB_URI` is missing or MongoDB is down: it logs a warning, retries every 15 seconds, and `GET /api/health` returns `503` with `database: "disconnected"` until the connection succeeds. Database-backed API requests also initialize the connection on demand, which supports serverless hosts such as Vercel. In production the standalone server exits on startup if the database is unreachable; serverless requests return an API error if the database cannot be reached.
 
 ## Scripts
 
